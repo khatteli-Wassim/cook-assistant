@@ -4,39 +4,30 @@ import Header from '@/components/Header'
 import Message, { MessageType } from '@/components/Message'
 import InputBar from '@/components/InputBar'
 import TypingIndicator from '@/components/TypingIndicator'
-import { Mode, getRecommendation } from '@/lib/api'
+import { streamChat, Message as APIMessage, Mode } from '@/lib/api'
+
+const WELCOME: MessageType = {
+  id: 'welcome',
+  role: 'bot',
+  text: "Marhba! 👋 I'm Chef AI, your personal cooking assistant. I can help you with:\n\n🍽️ **Find a recipe** — just tell me what you want to cook\n🥕 **Use your ingredients** — tell me what you have and I'll suggest meals\n✨ **Surprise you** — ask me to pick something for you\n💬 **Anything food related** — cooking tips, nutrition, techniques\n\nWhat can I help you with today?",
+  showModeChips: true,
+  chipsLocked: false,
+}
 
 export default function Home() {
-  const [messages, setMessages] = useState<MessageType[]>([
-    {
-      id: 'welcome',
-      role: 'bot',
-      text: 'Marhba! 👋 I\'m your AI kitchen assistant. What would you like to do today?',
-      showModeChips: true,
-      chipsLocked: false,
-    }
-  ])
-  const [mode, setMode] = useState<Mode | null>(null)
-  const [tags, setTags] = useState<string[]>([])
-  const [isTyping, setIsTyping] = useState(false)
-  const [selectedMode, setSelectedMode] = useState<Mode | undefined>(undefined)
+  const [messages, setMessages] = useState<MessageType[]>([WELCOME])
+  const [history, setHistory] = useState<APIMessage[]>([])
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [selectedMode, setSelectedMode] = useState<Mode | undefined>()
   const bottomRef = useRef<HTMLDivElement>(null)
+  const streamingIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isTyping, tags])
+  }, [messages])
 
   const addMessage = (msg: MessageType) => {
     setMessages(prev => [...prev, msg])
-  }
-
-  const cleanupAfterLastChips = () => {
-    setMessages(prev => {
-      const lastChipIdx = prev.map((m, i) => ({ m, i }))
-        .filter(({ m }) => m.showModeChips)
-        .pop()?.i ?? -1
-      return prev.slice(0, lastChipIdx + 1)
-    })
   }
 
   const lockChips = (chosenMode: Mode) => {
@@ -47,101 +38,99 @@ export default function Home() {
     ))
   }
 
-  const handleModeSelect = (selected: Mode) => {
-    if (isTyping) return
+  const sendMessage = async (text: string, mode?: Mode) => {
+    if (isStreaming || !text.trim()) return
 
-    cleanupAfterLastChips()
-    setMode(selected)
-    setSelectedMode(selected)
-    setTags([])
-
-    if (selected === 'propose_meal') {
-      lockChips(selected)
-      addMessage({
-        id: 'user-propose-' + Date.now(),
-        role: 'user',
-        text: '✨ Surprise me with a meal!',
-      })
-      callAPI({ mode: selected })
-      return
+    if (mode) {
+      lockChips(mode)
+      setSelectedMode(mode)
     }
 
-    if (selected === 'meal_to_ingredients') {
-      setTimeout(() => addMessage({
-        id: 'prompt-' + Date.now(),
-        role: 'bot',
-        text: 'Great! Type the meal name below and hit send.',
-      }), 50)
+    // Add user message
+    const userMsg: MessageType = {
+      id: 'user-' + Date.now(),
+      role: 'user',
+      text,
     }
+    addMessage(userMsg)
 
-    // ingredients_to_meals — no message, tag input shows in bottom bar only
-  }
+    // Add empty bot message that will be filled by streaming
+    const botId = 'bot-' + Date.now()
+    streamingIdRef.current = botId
+    const botMsg: MessageType = {
+      id: botId,
+      role: 'bot',
+      text: '',
+      isStreaming: true,
+    }
+    setMessages(prev => [...prev, botMsg])
+    setIsStreaming(true)
 
-  const callAPI = async (payload: Parameters<typeof getRecommendation>[0]) => {
-    setIsTyping(true)
+    // Build history to send
+    const updatedHistory: APIMessage[] = [
+      ...history,
+      { role: 'user', content: text }
+    ]
+
     try {
-      const result = await getRecommendation(payload)
-      addMessage({
-        id: 'result-' + Date.now(),
-        role: 'bot',
-        recipeData: { data: result.data, intent: result.intent },
-      })
+      let fullResponse = ''
+
+      await streamChat(
+        text,
+        history,
+        (chunk) => {
+          fullResponse += chunk
+          setMessages(prev => prev.map(m =>
+            m.id === botId ? { ...m, text: fullResponse } : m
+          ))
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+        },
+        () => {
+          // Streaming done
+          setMessages(prev => prev.map(m =>
+            m.id === botId ? { ...m, isStreaming: false } : m
+          ))
+          setHistory([
+            ...updatedHistory,
+            { role: 'assistant', content: fullResponse }
+          ])
+          setIsStreaming(false)
+          streamingIdRef.current = null
+
+          // Offer chips again after response
+          setTimeout(() => {
+            addMessage({
+              id: 'chips-' + Date.now(),
+              role: 'bot',
+              text: 'Anything else I can help with?',
+              showModeChips: true,
+              chipsLocked: false,
+            })
+          }, 300)
+        }
+      )
     } catch {
-      addMessage({
-        id: 'error-' + Date.now(),
-        role: 'bot',
-        text: '⚠️ Something went wrong. Make sure your backend is running!',
-      })
-    } finally {
-      setIsTyping(false)
-      setMode(null)
-      setSelectedMode(undefined)
-      setTags([])
-      offerReset()
+      setMessages(prev => prev.map(m =>
+        m.id === botId
+          ? { ...m, text: '⚠️ Something went wrong. Make sure the backend is running!', isStreaming: false }
+          : m
+      ))
+      setIsStreaming(false)
     }
   }
 
-  const offerReset = () => {
-    setTimeout(() => {
-      addMessage({
-        id: 'reset-' + Date.now(),
-        role: 'bot',
-        text: 'Want to try something else?',
-        showModeChips: true,
-        chipsLocked: false,
-      })
-    }, 400)
-  }
-
-  const handleSend = async (text: string) => {
-    if (!mode || mode !== 'meal_to_ingredients') return
-    lockChips(mode)
-    addMessage({
-      id: 'user-meal-' + Date.now(),
-      role: 'user',
-      text: `🍽️ ${text}`,
-    })
-    await callAPI({ mode: 'meal_to_ingredients', meal: text })
-  }
-
-  const handleSendTags = async () => {
-    if (tags.length === 0) {
-      addMessage({
-        id: 'warn-' + Date.now(),
-        role: 'bot',
-        text: 'Please add at least one ingredient first!',
-      })
-      return
+  const handleModeSelect = (mode: Mode) => {
+    if (isStreaming) return
+    const messageMap = {
+      meal_to_ingredients: 'I know what I want to cook, give me the recipe 🍽️',
+      ingredients_to_meals: 'I have some ingredients and want to know what I can make 🥕',
+      propose_meal: 'Surprise me with a random meal! ✨',
     }
-    lockChips('ingredients_to_meals')
-    addMessage({
-      id: 'user-tags-' + Date.now(),
-      role: 'user',
-      text: `🥕 My ingredients: ${tags.join(', ')}`,
-    })
-    const savedTags = [...tags]
-    setTags([])
-    await callAPI({ mode: 'ingredients_to_meals', ingredients: savedTags })
+    sendMessage(messageMap[mode], mode)
+  }
+
+  const handleSend = (text: string) => {
+    sendMessage(text)
   }
 
   return (
@@ -173,18 +162,13 @@ export default function Home() {
               }}
             />
           ))}
-          {isTyping && <TypingIndicator />}
           <div ref={bottomRef} />
         </div>
       </div>
 
       <InputBar
         onSend={handleSend}
-        onSendTags={handleSendTags}
-        mode={mode}
-        disabled={isTyping}
-        tags={tags}
-        onTagChange={setTags}
+        disabled={isStreaming}
       />
     </div>
   )

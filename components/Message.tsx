@@ -1,4 +1,3 @@
-import RecipeCard from './RecipeCard'
 import ModeChips from './ModeChips'
 import { Mode } from '@/lib/api'
 
@@ -6,15 +5,34 @@ export interface MessageType {
   id: string
   role: 'bot' | 'user'
   text?: string
+  isStreaming?: boolean
   showModeChips?: boolean
   chipsLocked?: boolean
-  recipeData?: { data: any; intent: string }
   onModeSelect?: (mode: Mode) => void
   selectedMode?: Mode
 }
 
 interface Props {
   message: MessageType
+}
+
+function formatText(text: string) {
+  // Convert **bold** to <strong> and newlines to <br>
+  return text
+    .split('\n')
+    .map((line, i) => {
+      const parts = line.split(/\*\*(.*?)\*\*/g)
+      return (
+        <span key={i}>
+          {parts.map((part, j) =>
+            j % 2 === 1
+              ? <strong key={j} style={{ color: 'var(--accent)', fontWeight: 600 }}>{part}</strong>
+              : part
+          )}
+          <br />
+        </span>
+      )
+    })
 }
 
 export default function Message({ message }: Props) {
@@ -55,12 +73,27 @@ export default function Message({ message }: Props) {
           borderRadius: 16,
           borderTopLeftRadius: isUser ? 16 : 4,
           borderTopRightRadius: isUser ? 4 : 16,
-          fontSize: 14, lineHeight: 1.6,
+          fontSize: 14, lineHeight: 1.7,
           background: isUser ? 'var(--user-bubble)' : 'var(--surface)',
           border: isUser ? '1px solid #2d5c44' : '1px solid var(--border)',
           color: isUser ? '#d4f0e0' : 'var(--text)',
         }}>
-          {message.text && <div>{message.text}</div>}
+          {message.text && (
+            <div>
+              {formatText(message.text)}
+              {/* Blinking cursor while streaming */}
+              {message.isStreaming && (
+                <span style={{
+                  display: 'inline-block',
+                  width: 2, height: 14,
+                  background: 'var(--accent)',
+                  marginLeft: 2,
+                  animation: 'pulse 0.8s infinite',
+                  verticalAlign: 'middle',
+                }} />
+              )}
+            </div>
+          )}
 
           {message.showModeChips && !message.chipsLocked && (
             <ModeChips
@@ -82,13 +115,6 @@ export default function Message({ message }: Props) {
               {message.selectedMode === 'ingredients_to_meals' && '🥕 I have ingredients'}
               {message.selectedMode === 'propose_meal' && '✨ Surprise me'}
             </div>
-          )}
-
-          {message.recipeData && (
-            <RecipeCard
-              data={message.recipeData.data}
-              intent={message.recipeData.intent}
-            />
           )}
         </div>
       </div>
