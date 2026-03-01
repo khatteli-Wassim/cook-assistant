@@ -1,15 +1,8 @@
-import ModeChips from './ModeChips'
-import { Mode } from '@/lib/api'
-
 export interface MessageType {
   id: string
   role: 'bot' | 'user'
   text?: string
   isStreaming?: boolean
-  showModeChips?: boolean
-  chipsLocked?: boolean
-  onModeSelect?: (mode: Mode) => void
-  selectedMode?: Mode
 }
 
 interface Props {
@@ -17,22 +10,19 @@ interface Props {
 }
 
 function formatText(text: string) {
-  // Convert **bold** to <strong> and newlines to <br>
-  return text
-    .split('\n')
-    .map((line, i) => {
-      const parts = line.split(/\*\*(.*?)\*\*/g)
-      return (
-        <span key={i}>
-          {parts.map((part, j) =>
-            j % 2 === 1
-              ? <strong key={j} style={{ color: 'var(--accent)', fontWeight: 600 }}>{part}</strong>
-              : part
-          )}
-          <br />
-        </span>
-      )
-    })
+  return text.split('\n').map((line, i) => {
+    const parts = line.split(/\*\*(.*?)\*\*/g)
+    return (
+      <span key={i}>
+        {parts.map((part, j) =>
+          j % 2 === 1
+            ? <strong key={j} style={{ color: 'var(--accent)', fontWeight: 600 }}>{part}</strong>
+            : part
+        )}
+        <br />
+      </span>
+    )
+  })
 }
 
 export default function Message({ message }: Props) {
@@ -81,7 +71,6 @@ export default function Message({ message }: Props) {
           {message.text && (
             <div>
               {formatText(message.text)}
-              {/* Blinking cursor while streaming */}
               {message.isStreaming && (
                 <span style={{
                   display: 'inline-block',
@@ -92,28 +81,6 @@ export default function Message({ message }: Props) {
                   verticalAlign: 'middle',
                 }} />
               )}
-            </div>
-          )}
-
-          {message.showModeChips && !message.chipsLocked && (
-            <ModeChips
-              onSelect={message.onModeSelect!}
-              selected={message.selectedMode}
-            />
-          )}
-
-          {message.showModeChips && message.chipsLocked && message.selectedMode && (
-            <div style={{
-              marginTop: 10,
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px',
-              background: 'rgba(232,184,109,0.1)',
-              border: '1px solid var(--accent)',
-              borderRadius: 20, fontSize: 12, color: 'var(--accent)',
-            }}>
-              {message.selectedMode === 'meal_to_ingredients' && '🍽️ I know the meal'}
-              {message.selectedMode === 'ingredients_to_meals' && '🥕 I have ingredients'}
-              {message.selectedMode === 'propose_meal' && '✨ Surprise me'}
             </div>
           )}
         </div>
